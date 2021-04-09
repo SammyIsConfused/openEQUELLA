@@ -32,6 +32,8 @@ import com.tle.tomcat.events.TomcatRestartListener;
 import com.tle.tomcat.service.TomcatService;
 import com.tle.web.dispatcher.RequestDispatchFilter;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.concurrent.TimeUnit;
 import javax.servlet.MultipartConfigElement;
 import javax.servlet.ServletContext;
@@ -62,10 +64,14 @@ import org.apache.tomcat.util.descriptor.web.FilterMap;
 @Singleton
 @SuppressWarnings("nls")
 public class TomcatServiceImpl implements TomcatService, StartupBean, TomcatRestartListener {
+
   private static final String BIO_HTTP = "org.apache.coyote.http11.Http11Protocol";
   private static final String BIO_AJP = "org.apache.coyote.ajp.AjpProtocol";
 
   private static final Log LOGGER = LogFactory.getLog(TomcatServiceImpl.class);
+
+  private String tomcatContextPath;
+  private String tomcatBasePath;
 
   @Inject(optional = true)
   @Named("userService.useXForwardedFor")
@@ -84,6 +90,18 @@ public class TomcatServiceImpl implements TomcatService, StartupBean, TomcatRest
   private int ajpPort;
 
   @Inject
+  @Named("ajp.address")
+  private String ajpAddress;
+
+  @Inject
+  @Named("ajp.secret")
+  private String ajpSecret;
+
+  @Inject
+  @Named("ajp.secret.required")
+  private boolean ajpSecretRequired;
+
+  @Inject
   @Named("tomcat.max.threads")
   private int maxThreads;
 
@@ -93,11 +111,15 @@ public class TomcatServiceImpl implements TomcatService, StartupBean, TomcatRest
 
   @Inject(optional = true)
   @Named("sessions.neverPersist")
-  private boolean sessionsNeverPersist = false;
+  private final boolean sessionsNeverPersist = false;
 
   @Inject(optional = true)
   @Named("tomcat.useBio")
-  private boolean useBio = false;
+  private final boolean useBio = false;
+
+  @Inject(optional = true)
+  @Named("tomcat.internalProxies")
+  private String internalProxies;
 
   @Inject private DataSourceService dataSourceService;
 
@@ -114,18 +136,29 @@ public class TomcatServiceImpl implements TomcatService, StartupBean, TomcatRest
           "You must specify either 'http.port, https.port' or 'ajp.port' in your mandatory-config.properties");
     }
     try {
+      setupDirectories();
+
       tomcat = new Tomcat();
-      tomcat.setBaseDir(System.getProperty("java.io.tmpdir"));
+      tomcat.setBaseDir(tomcatBasePath);
 
       Context context = new StandardContext();
       context.addLifecycleListener(new AprLifecycleListener());
       context.setName("/");
       context.setPath("");
-      context.setDocBase(new File(".").getAbsolutePath());
+      context.setDocBase(tomcatContextPath);
       context.setUseHttpOnly(false);
       if (useXForwardedFor) {
+        LOGGER.debug("Enabling the Tomcat RemoteIpValve.");
         RemoteIpValve protoValve = new RemoteIpValve();
         protoValve.setProtocolHeader("X-Forwarded-Proto");
+
+        if (!Check.isEmpty(internalProxies)) {
+          LOGGER.debug(
+              "Setting the Tomcat RemoteIpValve InternalProxies to: [" + internalProxies + "]");
+          protoValve.setInternalProxies(internalProxies);
+        } else {
+          LOGGER.debug("Not enabling the Tomcat RemoteIpValve InternalProxies - config is empty");
+        }
         context.getPipeline().addValve(protoValve);
       }
 
@@ -169,8 +202,13 @@ public class TomcatServiceImpl implements TomcatService, StartupBean, TomcatRest
       if (ajpPort != -1) {
         Connector connector = new Connector(useBio ? BIO_AJP : "AJP/1.3");
         connector.setPort(ajpPort);
+        if (!ajpSecret.equals("ignore")) {
+          connector.setAttribute("secret", ajpSecret);
+        }
+        connector.setAttribute("secretRequired", ajpSecretRequired);
         connector.setAttribute("tomcatAuthentication", false);
         connector.setAttribute("packetSize", "65536");
+        connector.setAttribute("address", ajpAddress);
         setConnector(connector);
       }
 
@@ -316,5 +354,29 @@ public class TomcatServiceImpl implements TomcatService, StartupBean, TomcatRest
     } catch (Exception e) {
       throw new RuntimeException(e.getMessage());
     }
+  }
+
+  /** Setup the directory for Tomcat and the oEQ webapp context. */
+  private void setupDirectories() throws IOException {
+    if (tomcatContextPath != null && tomcatBasePath != null) {
+      return;
+    }
+    // Setup a temporary directory to sandbox this instance of Tomcat and the context for
+    // the oEQ web app.
+    final File tempDir = Files.createTempDirectory("oeq-tomcat-basedir-").toFile();
+    // Ideally here we'd be able to use File.deleteOnExit() or a Runtime.addShutdownHook()
+    // to clean-up this file on termination. However we'd have to synchronise with the
+    // tomcat daemon etc. That could be a future optimisation if needed.
+    final File contextDir = new File(tempDir, "context/");
+    if (!contextDir.mkdir()) {
+      throw new RuntimeException(
+          "Failed to setup context directory: " + contextDir.getAbsolutePath());
+    }
+
+    tomcatBasePath = tempDir.getAbsolutePath();
+    tomcatContextPath = contextDir.getAbsolutePath();
+
+    LOGGER.info("Using base directory: " + tomcatBasePath);
+    LOGGER.info("Using context directory: " + tomcatContextPath);
   }
 }

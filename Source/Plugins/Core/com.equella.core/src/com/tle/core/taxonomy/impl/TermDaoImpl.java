@@ -18,6 +18,8 @@
 
 package com.tle.core.taxonomy.impl;
 
+import com.google.common.collect.Lists;
+import com.tle.annotation.Nullable;
 import com.tle.common.Check;
 import com.tle.common.beans.exception.InvalidDataException;
 import com.tle.common.beans.exception.ValidationError;
@@ -30,8 +32,10 @@ import com.tle.core.taxonomy.TermDao;
 import com.tle.core.taxonomy.TermResult;
 import com.tle.web.resources.PluginResourceHelper;
 import com.tle.web.resources.ResourcesService;
+import java.text.Collator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import javax.inject.Singleton;
@@ -40,7 +44,7 @@ import org.hibernate.Session;
 import org.hibernate.transform.BasicTransformerAdapter;
 import org.hibernate.transform.ResultTransformer;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.orm.hibernate3.HibernateCallback;
+import org.springframework.orm.hibernate5.HibernateCallback;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -70,11 +74,11 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
       };
 
   private static final String ROOT_TERMS_QUERY =
-      "FROM Term t WHERE t.taxonomy = ? AND t.parent IS NULL ORDER BY t.left ASC";
+      "FROM Term t WHERE t.taxonomy = ?0 AND t.parent IS NULL ORDER BY t.left ASC";
   private static final String ROOT_TERM_RESULTS_QUERY = TERM_RESULT_PROJECTION + ROOT_TERMS_QUERY;
 
   private static final String CHILD_TERMS_QUERY =
-      "FROM Term t WHERE t.parent = ? ORDER BY t.left ASC";
+      "FROM Term t WHERE t.parent = ?0 ORDER BY t.left ASC";
   private static final String CHILD_TERM_RESULTS_QUERY = TERM_RESULT_PROJECTION + CHILD_TERMS_QUERY;
 
   private static final PluginResourceHelper resources =
@@ -87,17 +91,19 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
   @Override
   public String getDataForTerm(Term term, String key) {
     List<String> results =
-        getHibernateTemplate()
-            .find(
-                "SELECT ta.value FROM TermAttributes ta WHERE ta.term = ? AND ta.key = ?",
-                new Object[] {term, key});
+        (List<String>)
+            getHibernateTemplate()
+                .find(
+                    "SELECT ta.value FROM TermAttributes ta WHERE ta.term = ?0 AND ta.key = ?1",
+                    new Object[] {term, key});
     return Check.isEmpty(results) ? null : results.get(0);
   }
 
   @Override
   public List<Term> getAllTermsInOrder(Taxonomy taxonomy) {
-    return getHibernateTemplate()
-        .find("FROM Term t WHERE t.taxonomy = ? ORDER BY t.left", new Object[] {taxonomy});
+    return (List<Term>)
+        getHibernateTemplate()
+            .find("FROM Term t WHERE t.taxonomy = ?0 ORDER BY t.left", new Object[] {taxonomy});
   }
 
   @Override
@@ -105,16 +111,13 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
     return (Term)
         getHibernateTemplate()
             .execute(
-                new HibernateCallback() {
-                  @Override
-                  public Object doInHibernate(Session session) {
-                    Query q =
-                        session.createQuery(
-                            "FROM Term WHERE taxonomy = :taxonomy" + " AND fullValue = :fullValue");
-                    q.setParameter("taxonomy", taxonomy);
-                    q.setString("fullValue", termFullPath);
-                    return q.uniqueResult();
-                  }
+                session -> {
+                  Query q =
+                      session.createQuery(
+                          "FROM Term WHERE taxonomy = :taxonomy" + " AND fullValue = :fullValue");
+                  q.setParameter("taxonomy", taxonomy);
+                  q.setString("fullValue", termFullPath);
+                  return q.uniqueResult();
                 });
   }
 
@@ -123,16 +126,13 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
     return (Term)
         getHibernateTemplate()
             .execute(
-                new HibernateCallback() {
-                  @Override
-                  public Object doInHibernate(Session session) {
-                    Query q =
-                        session.createQuery(
-                            "FROM Term WHERE uuid = :uuid" + " AND taxonomy = :taxonomy");
-                    q.setParameter("uuid", termUuid);
-                    q.setParameter("taxonomy", taxonomy);
-                    return q.uniqueResult();
-                  }
+                session -> {
+                  Query q =
+                      session.createQuery(
+                          "FROM Term WHERE uuid = :uuid" + " AND taxonomy = :taxonomy");
+                  q.setParameter("uuid", termUuid);
+                  q.setParameter("taxonomy", taxonomy);
+                  return q.uniqueResult();
                 });
   }
 
@@ -166,7 +166,8 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
                 q.setParameter("taxonomy", taxonomy);
                 q.executeUpdate();
 
-                decrementLaR(session, taxonomy, right + 1, Integer.MAX_VALUE, right - left + 1);
+                shiftLeftAndRightIndexes(
+                    session, taxonomy, right + 1, Integer.MAX_VALUE, -(right - left + 1));
 
                 return null;
               }
@@ -175,7 +176,8 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
 
   @Override
   @Transactional(propagation = Propagation.MANDATORY)
-  public Term insertNewTerm(Taxonomy taxonomy, Term parent, String termValue, int index) {
+  public Term insertNewTerm(
+      Taxonomy taxonomy, Term parent, @Nullable String termUuid, String termValue, int index) {
     termValue = termValue.trim();
     checkTermValue(termValue, taxonomy, parent);
 
@@ -184,7 +186,7 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
             ? getLeftForChildIndex(parent, index)
             : getLeftForRootTermIndex(taxonomy, index);
 
-    incrementLaR(null, taxonomy, left, Integer.MAX_VALUE, 2);
+    shiftLeftAndRightIndexes(null, taxonomy, left, Integer.MAX_VALUE, 2);
 
     final String fullValue =
         parent == null
@@ -192,7 +194,7 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
             : parent.getFullValue() + TaxonomyConstants.TERM_SEPARATOR + termValue;
 
     final Term newChild = new Term();
-    newChild.setUuid(UUID.randomUUID().toString());
+    newChild.setUuid(termUuid == null ? UUID.randomUUID().toString() : termUuid);
     newChild.setValue(termValue);
     newChild.setLeft(left);
     newChild.setRight(left + 1);
@@ -209,7 +211,7 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
   @Transactional(propagation = Propagation.MANDATORY)
   protected void postSave(Term entity) {
     super.postSave(entity);
-    // dangerous to keep terms in cache because of the incrementLaR magic
+    // dangerous to keep terms in cache because of the shiftLeftAndRightIndexes magic
     // (meaning isLeaf and paths becomes out of date)
     flush();
     clear();
@@ -255,61 +257,53 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
 
   @Override
   public List<Term> getRootTerms(Taxonomy taxonomy) {
-    return getHibernateTemplate().find(ROOT_TERMS_QUERY, taxonomy);
+    return (List<Term>) getHibernateTemplate().find(ROOT_TERMS_QUERY, taxonomy);
   }
 
   @Override
   public List<TermResult> getRootTermResults(final Taxonomy taxonomy) {
     return getHibernateTemplate()
-        .executeFind(
-            new HibernateCallback() {
-              @Override
-              public Object doInHibernate(Session session) {
-                Query q = session.createQuery(ROOT_TERM_RESULTS_QUERY);
-                q.setParameter(0, taxonomy);
-                q.setResultTransformer(TERM_RESULT_TRANSFORMER);
-                return q.list();
-              }
+        .execute(
+            session -> {
+              Query q = session.createQuery(ROOT_TERM_RESULTS_QUERY);
+              q.setParameter(0, taxonomy);
+              q.setResultTransformer(TERM_RESULT_TRANSFORMER);
+              return q.list();
             });
   }
 
   @Override
   public List<String> getRootTermValues(final Taxonomy taxonomy) {
     return getHibernateTemplate()
-        .executeFind(
-            new HibernateCallback() {
-              @Override
-              public Object doInHibernate(Session session) {
-                Query q = session.createQuery("SELECT value " + ROOT_TERMS_QUERY);
-                q.setParameter(0, taxonomy);
-                return q.list();
-              }
+        .execute(
+            session -> {
+              Query q = session.createQuery("SELECT value " + ROOT_TERMS_QUERY);
+              q.setParameter(0, taxonomy);
+              return q.list();
             });
   }
 
   @Override
   public List<Term> getChildTerms(Term parentTerm) {
-    return getHibernateTemplate().find(CHILD_TERMS_QUERY, parentTerm);
+    return (List<Term>) getHibernateTemplate().find(CHILD_TERMS_QUERY, parentTerm);
   }
 
   @Override
   public List<TermResult> getChildTermResults(final Term parentTerm) {
     return getHibernateTemplate()
-        .executeFind(
-            new HibernateCallback() {
-              @Override
-              public Object doInHibernate(Session session) {
-                Query q = session.createQuery(CHILD_TERM_RESULTS_QUERY);
-                q.setParameter(0, parentTerm);
-                q.setResultTransformer(TERM_RESULT_TRANSFORMER);
-                return q.list();
-              }
+        .execute(
+            session -> {
+              Query q = session.createQuery(CHILD_TERM_RESULTS_QUERY);
+              q.setParameter(0, parentTerm);
+              q.setResultTransformer(TERM_RESULT_TRANSFORMER);
+              return q.list();
             });
   }
 
   @Override
   public List<String> getChildTermValues(Term parentTerm) {
-    return getHibernateTemplate().find("SELECT value " + CHILD_TERMS_QUERY, parentTerm);
+    return (List<String>)
+        getHibernateTemplate().find("SELECT value " + CHILD_TERMS_QUERY, parentTerm);
   }
 
   @Override
@@ -403,60 +397,61 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
 
     getHibernateTemplate()
         .execute(
-            new HibernateCallback() {
-              @Override
-              public Object doInHibernate(Session session) {
-                // Find the largest Right value, plus one. This will be our
-                // temporary Left position for the block of terms we are moving.
-                final int maxLeft =
-                    (Integer)
-                        session
-                            .createQuery("SELECT MAX(rht) + 1 FROM Term WHERE taxonomy = :taxonomy")
-                            .setParameter("taxonomy", taxonomy)
-                            .uniqueResult();
+            session -> {
+              // Find the largest Right value, plus one. This will be our
+              // temporary Left position for the block of terms we are moving.
+              final int maxLeft =
+                  (Integer)
+                      session
+                          .createQuery("SELECT MAX(rht) + 1 FROM Term WHERE taxonomy = :taxonomy")
+                          .setParameter("taxonomy", taxonomy)
+                          .uniqueResult();
 
-                // Temporarily move the term and children to the end
-                incrementLaR(session, taxonomy, al, ar, maxLeft - al);
+              // Temporarily move the term and children to the end
+              shiftLeftAndRightIndexes(session, taxonomy, al, ar, maxLeft - al);
+              // shift(session, taxonomy, al, ar, maxLeft - al);
 
-                // destLeft should eventually contain the exact left index that
-                // the term being moved will use.
-                int destLeft = -1;
+              // destLeft should eventually contain the exact left index that
+              // the term being moved will use.
+              int destLeft = -1;
 
-                // Both AL and AR will be greater than INCFROM and DECFROM, or
-                // they will both be lower. It doesn't matter which of these
-                // pairs of variable we test for.
-                if (ar < incFrom) {
-                  // Term was before destination, so shift stuff down
-                  decrementLaR(session, taxonomy, ar + 1, decFrom, aw);
-                  destLeft = decFrom - aw + 1;
-                } else {
-                  // Term was after destination, so shift stuff up
-                  incrementLaR(session, taxonomy, incFrom, al - 1, aw);
-                  destLeft = incFrom;
-                }
-
-                // Move term back from the temporary position
-                decrementLaR(session, taxonomy, maxLeft, maxLeft + aw - 1, maxLeft - destLeft);
-
-                // We need to update the lineage if parent has changed. The left
-                // and right need to be temporarily set on the object so that we
-                // only invalidate full values of the current and child terms.
-                Term movedTermParent = moveThisTerm.getParent();
-                if (!Objects.equals(movedTermParent, parent)
-                    || (parent != null
-                        && movedTermParent != null
-                        && !Objects.equals(
-                            movedTermParent.getFullValue(), parent.getFullValue()))) {
-                  moveThisTerm.setParent(parent);
-                  moveThisTerm.setLeft(destLeft);
-                  moveThisTerm.setRight(destLeft + aw - 1);
-
-                  invalidateFullValues(moveThisTerm);
-                  updateFullValues(moveThisTerm.getTaxonomy());
-                }
-
-                return null;
+              // Both AL and AR will be greater than INCFROM and DECFROM, or
+              // they will both be lower. It doesn't matter which of these
+              // pairs of variable we test for.
+              if (ar < incFrom) {
+                // Term was before destination, so shift stuff down
+                shiftLeftAndRightIndexes(session, taxonomy, ar + 1, decFrom, -aw);
+                // shift(session, taxonomy, ar + 1, decFrom, -aw);
+                destLeft = decFrom - aw + 1;
+              } else {
+                // Term was after destination, so shift stuff up
+                shiftLeftAndRightIndexes(session, taxonomy, incFrom, al - 1, aw);
+                // shift(session, taxonomy, incFrom, al - 1, aw);
+                destLeft = incFrom;
               }
+
+              // Move term back from the temporary position
+              shiftLeftAndRightIndexes(
+                  session, taxonomy, maxLeft, maxLeft + aw - 1, -(maxLeft - destLeft));
+              // shift(session, taxonomy, maxLeft, maxLeft + aw - 1, -(maxLeft - destLeft));
+
+              // We need to update the lineage if parent has changed. The left
+              // and right need to be temporarily set on the object so that we
+              // only invalidate full values of the current and child terms.
+              Term movedTermParent = moveThisTerm.getParent();
+              if (!Objects.equals(movedTermParent, parent)
+                  || (parent != null
+                      && movedTermParent != null
+                      && !Objects.equals(movedTermParent.getFullValue(), parent.getFullValue()))) {
+                moveThisTerm.setParent(parent);
+                moveThisTerm.setLeft(destLeft);
+                moveThisTerm.setRight(destLeft + aw - 1);
+
+                invalidateFullValues(moveThisTerm);
+                updateFullValues(moveThisTerm.getTaxonomy());
+              }
+
+              return null;
             });
   }
 
@@ -483,19 +478,16 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
   public void deleteForTaxonomy(final Taxonomy taxonomy) {
     getHibernateTemplate()
         .execute(
-            new HibernateCallback() {
-              @Override
-              public Object doInHibernate(Session session) {
-                Query query =
-                    session.createQuery(
-                        "delete from TermAttributes ta where ta.term.id in (from Term where taxonomy = :taxonomy)");
-                query.setParameter("taxonomy", taxonomy);
-                query.executeUpdate();
-                query = session.createQuery("delete from Term where taxonomy = :taxonomy");
-                query.setParameter("taxonomy", taxonomy);
-                query.executeUpdate();
-                return null;
-              }
+            session -> {
+              Query query =
+                  session.createQuery(
+                      "delete from TermAttributes ta where ta.term.id in (from Term where taxonomy = :taxonomy)");
+              query.setParameter("taxonomy", taxonomy);
+              query.executeUpdate();
+              query = session.createQuery("delete from Term where taxonomy = :taxonomy");
+              query.setParameter("taxonomy", taxonomy);
+              query.executeUpdate();
+              return null;
             });
   }
 
@@ -507,119 +499,148 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
   private void invalidateFullValues(final Term term) {
     getHibernateTemplate()
         .execute(
-            new HibernateCallback() {
-              @Override
-              public Object doInHibernate(Session session) {
-                // Put a marker on full values for this term, and it's children.
-                // We can't just NULL out full values, because they have a
-                // uniqueness constraint we still need to abide by.
-                Query q =
-                    session.createQuery(
-                        "UPDATE Term SET fullValue = NULL"
-                            + " WHERE taxonomy = :taxonomy AND lft >= :left AND rht <= :right");
-                q.setParameter("taxonomy", term.getTaxonomy());
-                q.setInteger("left", term.getLeft());
-                q.setInteger("right", term.getRight());
-                q.executeUpdate();
-                return null;
-              }
+            session -> {
+              // Put a marker on full values for this term, and it's children.
+              // We can't just NULL out full values, because they have a
+              // uniqueness constraint we still need to abide by.
+              Query q =
+                  session.createQuery(
+                      "UPDATE Term SET fullValue = NULL"
+                          + " WHERE taxonomy = :taxonomy AND lft >= :left AND rht <= :right");
+              q.setParameter("taxonomy", term.getTaxonomy());
+              q.setInteger("left", term.getLeft());
+              q.setInteger("right", term.getRight());
+              q.executeUpdate();
+              return null;
             });
   }
 
   private void updateFullValues(final Taxonomy taxonomy) {
     getHibernateTemplate()
         .execute(
-            new HibernateCallback() {
-              @Override
-              public Object doInHibernate(Session session) {
-                boolean foundInvalid = false;
-                do {
-                  Query ru =
+            session -> {
+              boolean foundInvalid = false;
+              do {
+                Query ru =
+                    session.createQuery(
+                        "UPDATE Term"
+                            + " SET fullValue = value"
+                            + " WHERE parent IS NULL AND fullValue IS NULL"
+                            + " AND taxonomy = :taxonomy");
+                ru.setParameter("taxonomy", taxonomy);
+                ru.executeUpdate();
+
+                Query q =
+                    session.createQuery(
+                        "SELECT DISTINCT(parent.id), parent.fullValue"
+                            + " FROM Term WHERE fullValue IS NULL AND parent.fullValue IS NOT NULL"
+                            + " AND taxonomy = :taxonomy");
+                q.setParameter("taxonomy", taxonomy);
+
+                final List<Object[]> parents = q.list();
+                foundInvalid = !Check.isEmpty(parents);
+
+                for (Object[] parent : parents) {
+                  Query u =
                       session.createQuery(
                           "UPDATE Term"
-                              + " SET fullValue = value"
-                              + " WHERE parent IS NULL AND fullValue IS NULL"
-                              + " AND taxonomy = :taxonomy");
-                  ru.setParameter("taxonomy", taxonomy);
-                  ru.executeUpdate();
-
-                  Query q =
-                      session.createQuery(
-                          "SELECT DISTINCT(parent.id), parent.fullValue"
-                              + " FROM Term WHERE fullValue IS NULL AND parent.fullValue IS NOT NULL"
-                              + " AND taxonomy = :taxonomy");
-                  q.setParameter("taxonomy", taxonomy);
-
-                  final List<Object[]> parents = q.list();
-                  foundInvalid = !Check.isEmpty(parents);
-
-                  for (Object[] parent : parents) {
-                    Query u =
-                        session.createQuery(
-                            "UPDATE Term"
-                                + " SET fullValue = :parentFullValue || :termSeparator || value"
-                                + " WHERE parent.id = :parentId AND fullValue IS NULL");
-                    u.setString("termSeparator", TaxonomyConstants.TERM_SEPARATOR);
-                    u.setString("parentFullValue", (String) parent[1]);
-                    u.setLong("parentId", (Long) parent[0]);
-                    u.executeUpdate();
-                  }
-                } while (foundInvalid);
-
-                return null;
-              }
+                              + " SET fullValue = :parentFullValue || :termSeparator || value"
+                              + " WHERE parent.id = :parentId AND fullValue IS NULL");
+                  u.setString("termSeparator", TaxonomyConstants.TERM_SEPARATOR);
+                  u.setString("parentFullValue", (String) parent[1]);
+                  u.setLong("parentId", (Long) parent[0]);
+                  u.executeUpdate();
+                }
+              } while (foundInvalid);
+              return null;
             });
   }
 
-  private void incrementLaR(
-      Session session, final Taxonomy taxonomy, final int from, final int to, final int amount) {
+  private void shift(Session session, final Taxonomy taxonomy, final Term term, final int amount) {
     if (session != null) {
-      modifyLeftOrRight(session, "incLeft", taxonomy, from, to, amount);
-      modifyLeftOrRight(session, "incRight", taxonomy, from, to, amount);
+      Query q = session.getNamedQuery("shiftByPath");
+      q.setInteger("amount", amount);
+      q.setString("fullValue", term.getFullValue());
+      q.setString("fullValueWild", term.getFullValue() + "\\%");
+      q.setParameter("taxonomy", taxonomy);
+      q.executeUpdate();
     } else {
       getHibernateTemplate()
           .execute(
-              new HibernateCallback() {
-                @Override
-                public Object doInHibernate(Session session) {
-                  incrementLaR(session, taxonomy, from, to, amount);
-                  return null;
-                }
+              newSession -> {
+                shift(newSession, taxonomy, term, amount);
+                return null;
               });
     }
-  }
-
-  private void decrementLaR(
-      Session session, final Taxonomy taxonomy, final int from, final int to, final int amount) {
-    if (session != null) {
-      modifyLeftOrRight(session, "decLeft", taxonomy, from, to, amount);
-      modifyLeftOrRight(session, "decRight", taxonomy, from, to, amount);
-    } else {
-      getHibernateTemplate()
-          .execute(
-              new HibernateCallback() {
-                @Override
-                public Object doInHibernate(Session session) {
-                  decrementLaR(session, taxonomy, from, to, amount);
-                  return null;
-                }
-              });
-    }
-  }
-
-  private void modifyLeftOrRight(
-      Session session, String queryName, Taxonomy taxonomy, int from, int to, int amount) {
-    Query q = session.getNamedQuery(queryName);
-    q.setInteger("amount", amount);
-    q.setInteger("from", from);
-    q.setInteger("to", to);
-    q.setParameter("taxonomy", taxonomy);
-    q.executeUpdate();
   }
 
   @Override
   public void validateTerm(Taxonomy taxonomy, Term parent, String termValue) {
     checkTermValue(termValue, taxonomy, parent);
+  }
+
+  @Override
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void sortChildren(final Taxonomy taxonomy, final Term parentTerm) {
+    final List<Term> children =
+        (parentTerm == null ? getRootTerms(taxonomy) : getChildTerms(parentTerm));
+
+    // track all the swaps that happened (from index to to index)
+    // This should mean that the number of DB calls is <= N rather than <= N^2
+    final List<TermSortData> sortData =
+        new ArrayList<>(
+            Lists.transform(children, (t) -> new TermSortData(t, t.getLeft(), t.getRight())));
+
+    // Sort using server locale (in the absence of anything better!)
+    // We should probably have selectable default locales on institutions (new feature!)
+    final Collator collator = Collator.getInstance(Locale.getDefault());
+    collator.setStrength(Collator.PRIMARY);
+
+    // Don't use sortData.sort, we specifically need bubble sort as we need to catch each swap
+    // of position
+    final int n = sortData.size();
+    for (int i = 0; i < n; i++) {
+      for (int j = 1; j < (n - i); j++) {
+        final TermSortData o1 = sortData.get(j - 1);
+        final TermSortData o2 = sortData.get(j);
+        if (collator.compare(o1.term.getValue(), o2.term.getValue()) > 0) {
+          sortData.set(j - 1, o2);
+          sortData.set(j, o1);
+          o1.swapPosition(o2);
+        }
+      }
+    }
+
+    // now perform a re-number for each modification
+    getHibernateTemplate()
+        .execute(
+            session -> {
+              for (TermSortData tsd : sortData) {
+                final int shiftAmount = tsd.getShiftAmount();
+                if (shiftAmount != 0) {
+                  // we need to use the term path for hierarchical identification, as the
+                  // left+right indexes will get messed up during this process
+                  shift(session, taxonomy, tsd.term, shiftAmount);
+                }
+              }
+              return null;
+            });
+  }
+
+  @Override
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void sortTaxonomy(final Taxonomy taxonomy) {
+    // Depth first traversal
+    processChildTerms(taxonomy, null);
+  }
+
+  private void processChildTerms(Taxonomy taxonomy, Term parentTerm) {
+    final List<Term> children =
+        (parentTerm == null ? getRootTerms(taxonomy) : getChildTerms(parentTerm));
+    for (Term term : children) {
+      processChildTerms(taxonomy, term);
+    }
+    sortChildren(taxonomy, parentTerm);
   }
 
   private void checkTermValue(String termValue, Taxonomy taxonomy, Term parentTerm) {
@@ -666,6 +687,55 @@ public class TermDaoImpl extends GenericDaoImpl<Term, Long> implements TermDao {
 
     if (!errors.isEmpty()) {
       throw new InvalidDataException(errors);
+    }
+  }
+
+  private void shiftLeftAndRightIndexes(
+      Session session, final Taxonomy taxonomy, final int from, final int to, final int amount) {
+    if (session != null) {
+      modifyLeftOrRight(session, "shiftLeftIndex", taxonomy, from, to, amount);
+      modifyLeftOrRight(session, "shiftRightIndex", taxonomy, from, to, amount);
+    } else {
+      getHibernateTemplate()
+          .execute(
+              newSession -> {
+                shiftLeftAndRightIndexes(newSession, taxonomy, from, to, amount);
+                return null;
+              });
+    }
+  }
+
+  private void modifyLeftOrRight(
+      Session session, String queryName, Taxonomy taxonomy, int from, int to, int amount) {
+    Query q = session.getNamedQuery(queryName);
+    q.setInteger("amount", amount);
+    q.setInteger("from", from);
+    q.setInteger("to", to);
+    q.setParameter("taxonomy", taxonomy);
+    q.executeUpdate();
+  }
+
+  private class TermSortData {
+    private final Term term;
+    private final int width;
+    private int left;
+
+    public TermSortData(Term term, int left, int right) {
+      this.term = term;
+      this.left = left;
+      this.width = right - left;
+    }
+
+    public void swapPosition(TermSortData other) {
+      final TermSortData oldBefore = (other.left > left ? this : other);
+      final TermSortData oldAfter = (other.left > left ? other : this);
+
+      oldAfter.left -= (oldBefore.width + 1);
+      oldBefore.left += (oldAfter.width + 1);
+    }
+
+    public int getShiftAmount() {
+      return left - term.getLeft();
     }
   }
 }

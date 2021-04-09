@@ -7,14 +7,19 @@ import sbt.plugins.JvmPlugin
 
 object CommonSettings extends AutoPlugin {
   object autoImport {
-    lazy val versionProperties     = taskKey[File]("Version property file")
-    lazy val upgradeZip            = taskKey[File]("Create upgrade zip")
-    lazy val installerZip          = taskKey[File]("Create the installer zip")
-    lazy val equellaMajorMinor     = settingKey[String]("The major minor equella version")
-    lazy val equellaStream         = settingKey[String]("The equella stream name")
-    lazy val equellaBuild          = settingKey[String]("The equella build version")
-    lazy val equellaVersion        = settingKey[EquellaVersion]("The full equella version")
-    lazy val oracleDriverJar       = settingKey[Option[File]]("The oracle driver jar")
+    lazy val versionProperties = taskKey[File]("Version property file")
+    lazy val upgradeZip        = taskKey[File]("Create upgrade zip")
+    lazy val installerZip      = taskKey[File]("Create the installer zip")
+    lazy val equellaMajor      = settingKey[Int]("The major equella version")
+    lazy val equellaMinor      = settingKey[Int]("The minor equella version")
+    lazy val equellaPatch      = settingKey[Int]("The patch equella version")
+    lazy val equellaStream     = settingKey[String]("The equella stream name")
+    lazy val equellaBuild      = settingKey[String]("The equella build version")
+    lazy val equellaVersion    = settingKey[EquellaVersion]("The full equella version")
+    lazy val bundleOracleDriver =
+      settingKey[Boolean]("The flag used to indicate if oracle driver is needed or not")
+    lazy val oracleDriverMavenCoordinate =
+      settingKey[Seq[ModuleID]]("The Maven coordinate of Oracle JDBC")
     lazy val buildConfig           = settingKey[Config]("The build configuration settings")
     lazy val prepareDevConfig      = taskKey[Unit]("Prepare the dev learningedge-config folder")
     lazy val writeSourceZip        = taskKey[File]("Write out a zip containing all sources")
@@ -29,8 +34,8 @@ object CommonSettings extends AutoPlugin {
     lazy val platformSwing   = LocalProject("com_tle_platform_swing")
     lazy val platformEquella = LocalProject("com_tle_platform_equella")
     lazy val log4jCustom     = LocalProject("com_tle_log4j")
-    lazy val xstreamDep      = "com.thoughtworks.xstream" % "xstream" % "1.4.9"
-    lazy val postgresDep     = "org.postgresql" % "postgresql" % "42.1.4.jre7"
+    lazy val xstreamDep      = "com.thoughtworks.xstream" % "xstream" % "1.4.11.1"
+    lazy val postgresDep     = "org.postgresql" % "postgresql" % "42.2.18"
     lazy val sqlServerDep    = "com.microsoft.sqlserver" % "mssql-jdbc" % "6.1.0.jre8"
   }
 
@@ -41,9 +46,9 @@ object CommonSettings extends AutoPlugin {
   import autoImport._
   override def projectSettings = Seq(
     organization := "com.github.equella",
-    scalaVersion := "2.12.6",
+    scalaVersion := "2.12.12",
     scalacOptions += "-Ypartial-unification",
-    addCompilerPlugin("io.tryp" % "splain" % "0.3.1" cross CrossVersion.patch),
+    addCompilerPlugin("io.tryp" % "splain" % "0.5.7" cross CrossVersion.patch),
     scalacOptions ++= Seq("-P:splain:implicits:true", "-P:splain:color:false"),
     javacOptions ++= Seq("-source", "1.8", "-target", "8"),
     compileOrder := CompileOrder.Mixed,

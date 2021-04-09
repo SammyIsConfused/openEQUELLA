@@ -419,7 +419,7 @@ kbd {
 
 .content a,
 .modal a {
-  color: #0c96c4;
+  color: #097092;
   text-decoration: none;
 }
 
@@ -605,7 +605,7 @@ div.tooltip {
 }
 
 .area h2 {
-  color: #8d897e;
+  color: #636058;
   font-size: 22px;
   font-weight: normal;
   margin-bottom: 10px;
@@ -1551,13 +1551,6 @@ Expandable button
 .button-expandable i {
   margin-left: 1px;
   margin-right: 3px;
-}
-
-/* Firefox3-specific CSS property for expandable button icon position*/
-@-moz-document url-prefix() {
-  .button-expandable i {
-    margin-left: 6px;
-  }
 }
 
 .button-expandable:hover {

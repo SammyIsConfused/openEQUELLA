@@ -191,7 +191,6 @@ public class TopicDisplaySection
       hideZero = topic.isHideSubtopicsWithNoResults();
     }
     model.setName(getLabelForTopic(topic, topicVirtValue));
-
     // We now need the current topic and value to be in the "values" map so
     // that the counts and URLs for the child topics are generated
     // correctly.
@@ -235,7 +234,6 @@ public class TopicDisplaySection
 
       HtmlLinkState link =
           new HtmlLinkState(events.getNamedHandler("changeTopic", dynamicHierarchyId));
-
       List<HierarchyTopicDynamicKeyResources> dynamicKeyResources =
           hierarchyService.getDynamicKeyResource(dynamicHierarchyId);
 
@@ -253,7 +251,6 @@ public class TopicDisplaySection
       }
     }
     model.setSubTopics(subNodes);
-
     // for the benefit of skinny sessions ...
     if (skinnySearchActions != null) {
       // If there's no topic, we're showing the topic display and so don't
@@ -294,6 +291,7 @@ public class TopicDisplaySection
   public void changeTopic(SectionInfo info, String topicUuid) {
     getModel(info).setTopicId(topicUuid);
     pager.resetToFirst(info);
+    info.forceRedirect();
   }
 
   @Override
@@ -640,6 +638,17 @@ public class TopicDisplaySection
         i = index;
       }
       return wrapped.getItemKey(i);
+    }
+
+    /**
+     * This method was mainly added to provide better Java->Scala interoperability for the Search2
+     * rest api
+     *
+     * @return null. The Search2 rest api currently does not support the display of Hierarchy topics
+     */
+    @Override
+    public List<T> getSearchResults() {
+      return null;
     }
 
     @Override

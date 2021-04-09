@@ -19,21 +19,26 @@
 package com.tle.web.lti.usermanagement;
 
 import com.tle.common.externaltools.constants.ExternalToolConstants;
+import com.tle.common.lti.consumers.entity.LtiConsumer;
 import com.tle.core.guice.Bind;
 import javax.inject.Singleton;
 import javax.servlet.http.HttpServletRequest;
 
 /** @author Aaron */
+
+// FIXME: With the new GenericLtiWrapperExtension, this code shouldn't be called anymore
+
 @Bind
 @Singleton
 public class LisLtiWrapperExtension implements LtiWrapperExtension {
+
   @Override
-  public String getUserId(HttpServletRequest request) {
+  public String getUserId(HttpServletRequest request, LtiConsumer consumer) {
     return null;
   }
 
   @Override
-  public String getUsername(HttpServletRequest request) {
+  public String getUsername(HttpServletRequest request, LtiConsumer consumer) {
     return request.getParameter(ExternalToolConstants.LIS_PERSON_SOURCEDID);
   }
 
@@ -53,7 +58,7 @@ public class LisLtiWrapperExtension implements LtiWrapperExtension {
   }
 
   @Override
-  public boolean isPrefixUserId() {
+  public boolean isPrefixUserId(LtiConsumer consumer) {
     return true;
   }
 }

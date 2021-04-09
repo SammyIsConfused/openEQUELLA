@@ -29,8 +29,13 @@ import com.tle.common.institution.CurrentInstitution;
 import com.tle.core.guice.Bind;
 import com.tle.core.hibernate.dao.GenericDaoImpl;
 import com.tle.core.item.dao.AttachmentDao;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import javax.inject.Singleton;
+import org.hibernate.Criteria;
+import org.hibernate.criterion.DetachedCriteria;
+import org.hibernate.criterion.Restrictions;
 
 @SuppressWarnings("nls")
 @Bind(AttachmentDao.class)
@@ -41,36 +46,47 @@ public class AttachmentDaoImpl extends GenericDaoImpl<Attachment, Long> implemen
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public List<Attachment> findByMd5Sum(
-      final String md5Sum, ItemDefinition collection, boolean ignoreDeletedRejectedSuspenedItems) {
-    String hql =
-        "SELECT a FROM Item i LEFT JOIN i.attachments a WHERE a.md5sum = :md5sum"
-            + " AND i.itemDefinition = :collection AND i.institution = :institution";
-    if (ignoreDeletedRejectedSuspenedItems) {
-      hql += " AND i.status NOT IN ('REJECTED', 'SUSPENDED', 'DELETED')";
-    }
+      final String md5Sum,
+      ItemDefinition collection,
+      boolean ignoreDeletedRejectedSuspenedItems,
+      String excludedItemUuid) {
+    String[] names = new String[] {"md5sum", "collection", "institution"};
+    Object[] values = new Object[] {md5Sum, collection, CurrentInstitution.get()};
+    List<String> nameList = new ArrayList<String>(Arrays.asList(names));
+    List<Object> valueList = new ArrayList<Object>(Arrays.asList(values));
 
+    StringBuilder query = new StringBuilder();
+    query.append("SELECT a FROM Item i LEFT JOIN i.attachments a WHERE a.md5sum = :md5sum");
+    query.append(" AND i.itemDefinition = :collection AND i.institution = :institution");
+    if (ignoreDeletedRejectedSuspenedItems) {
+      query.append(" AND i.status NOT IN ('REJECTED', 'SUSPENDED', 'DELETED', 'ARCHIVED')");
+    }
+    if (excludedItemUuid != null) {
+      query.append(" AND i.uuid != :excludedItemUuid");
+      nameList.add("excludedItemUuid");
+      valueList.add(excludedItemUuid);
+    }
     List<Attachment> attachments =
-        getHibernateTemplate()
-            .findByNamedParam(
-                hql,
-                new String[] {"md5sum", "collection", "institution"},
-                new Object[] {md5Sum, collection, CurrentInstitution.get()});
+        (List<Attachment>)
+            getHibernateTemplate()
+                .findByNamedParam(
+                    query.toString(),
+                    nameList.toArray(new String[nameList.size()]),
+                    valueList.toArray());
 
     return attachments;
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public List<FileAttachment> findFilesWithNoMD5Sum() {
     String hql =
         "FROM FileAttachment WHERE (md5sum IS NULL OR md5sum = '') AND item.institution = :institution";
-    return getHibernateTemplate().findByNamedParam(hql, "institution", CurrentInstitution.get());
+    return (List<FileAttachment>)
+        getHibernateTemplate().findByNamedParam(hql, "institution", CurrentInstitution.get());
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public List<CustomAttachment> findResourceAttachmentsByQuery(
       final String query, boolean liveOnly, String sortHql) {
     String q = query;
@@ -105,9 +121,30 @@ public class AttachmentDaoImpl extends GenericDaoImpl<Attachment, Long> implemen
     hql += " " + sortHql;
 
     final List<CustomAttachment> attachments =
-        getHibernateTemplate()
-            .findByNamedParam(hql, params.toArray(new String[params.size()]), paramVals.toArray());
+        (List<CustomAttachment>)
+            getHibernateTemplate()
+                .findByNamedParam(
+                    hql, params.toArray(new String[params.size()]), paramVals.toArray());
     // it's possible that value1 could be
     return attachments;
+  }
+
+  // Criteria for checking attachments against institution of the item and UUID of the
+  // attachment. Detached so that we don't need to create a Hibernate session until one is required.
+  private DetachedCriteria criteriaByUuid(String uuid) {
+    return DetachedCriteria.forClass(Attachment.class)
+        .createAlias("item", "i")
+        .add(Restrictions.eq("i.institution", CurrentInstitution.get()))
+        .add(Restrictions.eq("uuid", uuid));
+  }
+
+  @Override
+  public List<Attachment> findAllByUuid(String uuid) {
+    return (List<Attachment>) findByDetachedCriteria(criteriaByUuid(uuid), Criteria::list);
+  }
+
+  @Override
+  public Attachment findByUuid(String uuid) {
+    return (Attachment) findByDetachedCriteria(criteriaByUuid(uuid), Criteria::uniqueResult);
   }
 }

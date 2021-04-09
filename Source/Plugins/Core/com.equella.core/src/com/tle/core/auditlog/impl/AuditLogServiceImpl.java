@@ -21,7 +21,7 @@ package com.tle.core.auditlog.impl;
 import com.tle.beans.Institution;
 import com.tle.beans.item.Item;
 import com.tle.beans.item.ItemKey;
-import com.tle.beans.item.attachments.Attachment;
+import com.tle.beans.item.attachments.IAttachment;
 import com.tle.common.institution.CurrentInstitution;
 import com.tle.common.usermanagement.user.CurrentUser;
 import com.tle.common.usermanagement.user.UserState;
@@ -50,6 +50,7 @@ public class AuditLogServiceImpl implements AuditLogService {
   private static final String ENTITY_CATEGORY = "ENTITY";
   private static final String SEARCH_CATEGORY = "SEARCH";
   private static final String ITEM_CATEGORY = "ITEM";
+  private static final String EXTERNAL_CONN_CATEGORY = "EXTERNAL_CONNECTOR";
 
   private static final String CREATED_TYPE = "CREATED";
   private static final String MODIFIED_TYPE = "MODIFIED";
@@ -59,6 +60,8 @@ public class AuditLogServiceImpl implements AuditLogService {
   private static final String SUMMARY_VIEWED_TYPE = "SUMMARY_VIEWED";
 
   private static final String SEARCH_FEDERATED_TYPE = "FEDERATED";
+
+  private static final String USED_TYPE = "USED";
 
   private static final String TRUNCED = "...";
 
@@ -180,7 +183,7 @@ public class AuditLogServiceImpl implements AuditLogService {
       ItemKey itemId,
       String contentType,
       String path,
-      Attachment attachment,
+      IAttachment attachment,
       HttpServletRequest request) {
     logContentViewed(ITEM_CATEGORY, itemId, contentType, path, request);
   }
@@ -195,6 +198,21 @@ public class AuditLogServiceImpl implements AuditLogService {
         Integer.toString(item.getVersion()),
         null,
         null);
+  }
+
+  @Override
+  public void logExternalConnectorUsed(
+      String externalConnectorUrl,
+      String requestLimit,
+      String requestRemaining,
+      String timeToReset) {
+    logGeneric(
+        EXTERNAL_CONN_CATEGORY,
+        USED_TYPE,
+        externalConnectorUrl,
+        requestLimit,
+        requestRemaining,
+        timeToReset);
   }
 
   private void logEntityGeneric(String type, long entityId) {

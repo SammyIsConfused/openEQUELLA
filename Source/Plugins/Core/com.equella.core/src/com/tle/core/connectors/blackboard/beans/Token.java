@@ -19,10 +19,11 @@
 package com.tle.core.connectors.blackboard.beans;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serializable;
 import javax.xml.bind.annotation.XmlRootElement;
 
 @XmlRootElement
-public class Token {
+public class Token implements Serializable {
   @JsonProperty("access_token")
   private String accessToken;
 
@@ -31,6 +32,15 @@ public class Token {
 
   @JsonProperty("expires_in")
   private Integer expiresIn;
+
+  @JsonProperty("scope")
+  private String scope;
+
+  @JsonProperty("user_id")
+  private String userId;
+
+  @JsonProperty("refresh_token")
+  private String refreshToken;
 
   public String getAccessToken() {
     return accessToken;
@@ -54,5 +64,44 @@ public class Token {
 
   public void setExpiresIn(Integer expiresIn) {
     this.expiresIn = expiresIn;
+  }
+
+  public String getScope() {
+    return scope;
+  }
+
+  public void setScope(String scope) {
+    this.scope = scope;
+  }
+
+  public String getUserId() {
+    return userId;
+  }
+
+  public void setUserId(String userId) {
+    this.userId = userId;
+  }
+
+  public String getRefreshToken() {
+    return refreshToken;
+  }
+
+  public void setRefreshToken(String refreshToken) {
+    this.refreshToken = refreshToken;
+  }
+
+  public String toString() {
+    return "accessToken="
+        + accessToken
+        + ", tokenType="
+        + tokenType
+        + ", expiresIn="
+        + expiresIn
+        + ", scope="
+        + scope
+        + ", userId="
+        + userId
+        + ", refreshToken="
+        + refreshToken;
   }
 }

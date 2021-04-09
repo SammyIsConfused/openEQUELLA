@@ -24,6 +24,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
+import com.tle.annotation.Nullable;
 import com.tle.beans.Institution;
 import com.tle.common.Check;
 import com.tle.common.Pair;
@@ -32,6 +33,7 @@ import com.tle.common.beans.exception.NotFoundException;
 import com.tle.common.beans.exception.ValidationError;
 import com.tle.common.filesystem.handle.BucketFile;
 import com.tle.common.filesystem.handle.SubTemporaryFile;
+import com.tle.common.security.SecurityConstants;
 import com.tle.common.taxonomy.SelectionRestriction;
 import com.tle.common.taxonomy.Taxonomy;
 import com.tle.common.taxonomy.TaxonomyConstants;
@@ -155,23 +157,32 @@ public class TermServiceImpl implements TermService {
   @Override
   @Transactional(propagation = Propagation.REQUIRED)
   public TermResult addTerm(
-      Taxonomy taxonomy, String parentFullPath, String termValue, boolean createHierarchy) {
-    String path = insertTermImpl(taxonomy, parentFullPath, termValue, -1, createHierarchy);
+      Taxonomy taxonomy,
+      String parentFullPath,
+      @Nullable String termUuid,
+      String termValue,
+      boolean createHierarchy) {
+    String path =
+        insertTermImpl(taxonomy, parentFullPath, termUuid, termValue, -1, createHierarchy);
     return new TermResult(termValue, path, true);
   }
 
   @Override
-  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
   public String insertTerm(Taxonomy taxonomy, String parentFullPath, String term, int index) {
-    return insertTermImpl(taxonomy, parentFullPath, term, index, false);
+    return insertTermImpl(taxonomy, parentFullPath, null, term, index, false);
   }
 
   @Override
-  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
   public TermResult insertTerm(
-      Taxonomy taxonomy, TermResult parentTermResult, String termValue, int index) {
+      Taxonomy taxonomy,
+      TermResult parentTermResult,
+      @Nullable String termUuid,
+      String termValue,
+      int index) {
     Term parentTerm = null;
     if (parentTermResult != null) {
       parentTerm = getTermByUuid(taxonomy, parentTermResult.getUuid());
@@ -181,13 +192,19 @@ public class TermServiceImpl implements TermService {
       parentFullpath = parentTerm.getFullValue();
     }
 
-    String termFullValue = insertTermImpl(taxonomy, parentFullpath, termValue, index, false);
+    String termFullValue =
+        insertTermImpl(taxonomy, parentFullpath, termUuid, termValue, index, false);
 
     return this.getTermResult(taxonomy, termFullValue);
   }
 
   private String insertTermImpl(
-      Taxonomy taxonomy, String parentFullPath, String term, int index, boolean createHierarchy) {
+      Taxonomy taxonomy,
+      String parentFullPath,
+      @Nullable String termUuid,
+      String term,
+      int index,
+      boolean createHierarchy) {
     ensureLocked(taxonomy);
 
     boolean root = Strings.isNullOrEmpty(parentFullPath);
@@ -195,7 +212,7 @@ public class TermServiceImpl implements TermService {
     validateTerm(taxonomy, parent, parentFullPath, term, !root && !createHierarchy);
 
     if (parent != null || root) {
-      Term newTerm = termDao.insertNewTerm(taxonomy, parent, term, index);
+      Term newTerm = termDao.insertNewTerm(taxonomy, parent, termUuid, term, index);
       return newTerm.getFullValue();
     } else if (createHierarchy) {
       final String fullPathNoRoot =
@@ -215,7 +232,9 @@ public class TermServiceImpl implements TermService {
         path.append(parts[i]);
         pterm = termDao.getTerm(taxonomy, path.toString());
         if (pterm == null) {
-          pterm = termDao.insertNewTerm(taxonomy, parent, parts[i], -1);
+          pterm =
+              termDao.insertNewTerm(
+                  taxonomy, parent, (i == parts.length - 1 ? termUuid : null), parts[i], -1);
         }
         parent = pterm;
       }
@@ -286,7 +305,7 @@ public class TermServiceImpl implements TermService {
   }
 
   @Override
-  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
   public void move(Taxonomy taxonomy, String termToMove, String moveToParent, int index) {
     ensureLocked(taxonomy);
@@ -294,7 +313,7 @@ public class TermServiceImpl implements TermService {
   }
 
   @Override
-  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
   public void move(Taxonomy taxonomy, TermResult termToMove, TermResult parentTerm, int index) {
     ensureLocked(taxonomy);
@@ -305,7 +324,7 @@ public class TermServiceImpl implements TermService {
   }
 
   @Override
-  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
   public void updateTerm(
       Taxonomy taxonomy, String termUuid, String moveToParent, int index, String newValue) {
@@ -313,7 +332,7 @@ public class TermServiceImpl implements TermService {
   }
 
   @Override
-  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
   public void renameTermValue(Taxonomy taxonomy, String termToRename, String newValue) {
     ensureLocked(taxonomy);
@@ -321,7 +340,7 @@ public class TermServiceImpl implements TermService {
   }
 
   @Override
-  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
   public void deleteTerm(Taxonomy taxonomy, String termFullPath) {
     ensureLocked(taxonomy);
@@ -329,18 +348,20 @@ public class TermServiceImpl implements TermService {
   }
 
   @Override
-  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
-  public void setData(Taxonomy taxonomy, String termFullPath, String dataKey, String dataValue) {
+  public boolean setData(Taxonomy taxonomy, String termFullPath, String dataKey, String dataValue) {
     ensureLocked(taxonomy);
 
     Term term = getTerm(taxonomy, termFullPath);
+    boolean created = false;
     if (Check.isEmpty(dataValue)) {
       term.removeAttribute(dataKey);
     } else {
-      term.setAttribute(dataKey, dataValue);
+      created = term.setAttribute(dataKey, dataValue);
     }
     termDao.update(term);
+    return created;
   }
 
   @Override
@@ -349,7 +370,7 @@ public class TermServiceImpl implements TermService {
   }
 
   @Override
-  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
   public void setAllData(Taxonomy taxonomy, String termFullPath, Map<String, String> data) {
     ensureLocked(taxonomy);
@@ -368,19 +389,25 @@ public class TermServiceImpl implements TermService {
   }
 
   @Override
-  public void setDataByTermUuid(
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
+  @Transactional(propagation = Propagation.REQUIRED)
+  public boolean setDataByTermUuid(
       Taxonomy taxonomy, String termUuid, String dataKey, String dataValue) {
     ensureLocked(taxonomy);
     Term term = termDao.getTermByUuid(taxonomy, termUuid);
+    boolean created = false;
     if (Check.isEmpty(dataValue)) {
       term.removeAttribute(dataKey);
     } else {
-      term.setAttribute(dataKey, dataValue);
+      created = term.setAttribute(dataKey, dataValue);
     }
     termDao.update(term);
+    return created;
   }
 
   @Override
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
+  @Transactional(propagation = Propagation.REQUIRED)
   public void setAllDataByTermUuid(Taxonomy taxonomy, String termUuid, Map<String, String> data) {
     ensureLocked(taxonomy);
     Term term = getTermByUuid(taxonomy, termUuid);
@@ -430,9 +457,26 @@ public class TermServiceImpl implements TermService {
   }
 
   @Override
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
   @Transactional(propagation = Propagation.REQUIRED)
   public void deleteForTaxonomy(Taxonomy taxonomy) {
     termDao.deleteForTaxonomy(taxonomy);
+  }
+
+  @Override
+  @SecureOnCall(priv = SecurityConstants.EDIT_TAXONOMY)
+  @Transactional(propagation = Propagation.REQUIRED)
+  public void sortChildren(Taxonomy taxonomy, String fullTermPath) {
+    ensureLocked(taxonomy);
+    termDao.sortChildren(taxonomy, (fullTermPath == null ? null : getTerm(taxonomy, fullTermPath)));
+  }
+
+  @Override
+  @SecureOnCall(priv = "EDIT_TAXONOMY")
+  @Transactional(propagation = Propagation.REQUIRED)
+  public void sortTaxonomy(Taxonomy taxonomy) {
+    ensureLocked(taxonomy);
+    termDao.sortTaxonomy(taxonomy);
   }
 
   @Override

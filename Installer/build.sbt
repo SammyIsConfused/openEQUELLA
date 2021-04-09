@@ -2,11 +2,19 @@ import Path.relativeTo
 
 libraryDependencies ++= Seq(
   "com.google.guava" % "guava"         % "18.0",
-  "org.slf4j"        % "slf4j-simple"  % "1.7.26",
-  "commons-codec"    % "commons-codec" % "1.12",
+  "org.slf4j"        % "slf4j-simple"  % "1.7.30",
+  "commons-codec"    % "commons-codec" % "1.15",
   postgresDep,
   sqlServerDep
 )
+
+libraryDependencies ++= {
+  if (bundleOracleDriver.value) {
+    oracleDriverMavenCoordinate.value
+  } else {
+    Seq.empty
+  }
+}
 
 excludeDependencies ++= Seq(
   "log4j"           % "log4j",
@@ -14,8 +22,6 @@ excludeDependencies ++= Seq(
   "commons-logging" % "commons-logging",
   "stax"            % "stax-api"
 )
-
-unmanagedJars in Compile ++= oracleDriverJar.value.toSeq.classpath
 
 assemblyOption in assembly := (assemblyOption in assembly).value.copy(includeScala = false)
 
@@ -27,7 +33,7 @@ lazy val upgradeManager = LocalProject("UpgradeManager")
 installerZip := {
   val log            = streams.value.log
   val ver            = equellaVersion.value
-  val dirname        = s"equella-installer-${ver.majorMinor}"
+  val dirname        = s"equella-installer-${ver.semanticVersion}"
   val outZip         = target.value / s"$dirname.zip"
   val serverData     = baseDirectory.value / "data/server"
   val allServerFiles = serverData ** "*" pair (relativeTo(serverData), false)

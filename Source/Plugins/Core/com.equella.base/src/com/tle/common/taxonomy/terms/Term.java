@@ -22,6 +22,7 @@ import com.thoughtworks.xstream.annotations.XStreamOmitField;
 import com.tle.common.Check;
 import com.tle.common.DontUseMethod;
 import com.tle.common.taxonomy.Taxonomy;
+import com.tle.common.taxonomy.TaxonomyConstants;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
@@ -66,24 +67,30 @@ import org.hibernate.annotations.NamedQuery;
     })
 @NamedQueries({
   @NamedQuery(
-      name = "incLeft",
+      name = "shiftLeftIndex",
       query =
           "UPDATE Term SET lft = lft + :amount WHERE lft >= :from AND lft <= :to AND taxonomy = :taxonomy",
       cacheable = true),
   @NamedQuery(
-      name = "incRight",
+      name = "shiftRightIndex",
       query =
           "UPDATE Term SET rht = rht + :amount WHERE rht >= :from AND rht <= :to AND taxonomy = :taxonomy",
       cacheable = true),
   @NamedQuery(
-      name = "decLeft",
+      name = "shift",
       query =
-          "UPDATE Term SET lft = lft - :amount WHERE lft >= :from AND lft <= :to AND taxonomy = :taxonomy",
+          "UPDATE Term SET lft = lft + :amount, rht = rht + :amount "
+              + "WHERE (lft >= :from OR rht >= :from) AND (lft <= :to OR rht <= :to) "
+              + "AND taxonomy = :taxonomy",
       cacheable = true),
   @NamedQuery(
-      name = "decRight",
+      name = "shiftByPath",
       query =
-          "UPDATE Term SET rht = rht - :amount WHERE rht >= :from AND rht <= :to AND taxonomy = :taxonomy",
+          "UPDATE Term SET lft = lft + :amount, rht = rht + :amount "
+              + "WHERE (fullValue = :fullValue OR fullValue LIKE :fullValueWild ESCAPE '"
+              + TaxonomyConstants.LIKE_ESCAPE
+              + "') "
+              + "AND taxonomy = :taxonomy",
       cacheable = true)
 })
 public class Term implements Serializable {
@@ -278,9 +285,12 @@ public class Term implements Serializable {
     return null;
   }
 
-  public void setAttribute(String key, String value) {
+  /** @return true if the attribute did not previously exist */
+  public boolean setAttribute(String key, String value) {
     ensureAttributes();
+    final boolean created = (attributes.get(key) == null);
     attributes.put(key, new TermAttribute(key, value));
+    return created;
   }
 
   public void removeAttribute(String key) {

@@ -1,4 +1,5 @@
 /bower_components/
+/coverage/
 /node_modules/
 /.pulp-cache/
 /output/
@@ -7,5 +8,7 @@
 /.psc*
 /.purs*
 /.psa*
+/public/
 yarn-error.log
 .vscode
+storybook-static/

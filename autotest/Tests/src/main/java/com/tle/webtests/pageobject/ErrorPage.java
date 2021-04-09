@@ -2,6 +2,7 @@ package com.tle.webtests.pageobject;
 
 import com.tle.webtests.framework.PageContext;
 import org.openqa.selenium.By;
+import org.openqa.selenium.support.ui.ExpectedConditions;
 
 /** @author Aaron */
 public class ErrorPage extends AbstractPage<ErrorPage> {
@@ -30,20 +31,38 @@ public class ErrorPage extends AbstractPage<ErrorPage> {
     return newUi ? By.id("errorPage") : By.xpath("//div[@class='area error']");
   }
 
-  public String getMainErrorMessage() {
-    return driver.findElement(By.xpath("//div[contains(@class, 'error')]/h2")).getText();
+  // Existing tests have the old UI error screen appear for new UI flows.  Looks like
+  // tech debt as oEQ is converted to the new UI.  Eventually, it would be good to key
+  // off of testConfig.isNewUI()
+  public String getMainErrorMessage(boolean newUi) {
+    By mainErrorBy =
+        getErrorBy(newUi ? "id('mainDiv')//h5" : "//div[contains(@class, 'error')]/h2");
+    return driver.findElement(mainErrorBy).getText();
   }
 
-  public String getSubErrorMessage() {
-    return driver.findElement(By.xpath("//div[contains(@class, 'error')]/h3[1]")).getText();
+  // See note above on getMainErrorMessage(boolean)
+  public String getSubErrorMessage(boolean newUi) {
+    return driver
+        .findElement(
+            getErrorBy(newUi ? "id('errorPage')//h3" : "//div[contains(@class, 'error')]/h3[1]"))
+        .getText();
   }
 
   public String getDetail() {
     return driver
         .findElement(
-            isNewUI()
-                ? By.xpath("id('errorPage')//h5")
-                : By.xpath("//div[@class='area error']/p[@id='description']"))
+            getErrorBy(
+                isNewUI()
+                    ? "id('errorPage')//h5"
+                    : "//div[@class='area error']/p[@id='description']"))
+        .getText();
+  }
+
+  public String getDenied() {
+    return driver
+        .findElement(
+            getErrorBy(
+                isNewUI() ? "id('errorPage')//h5" : "//div[@class='area error']/p[@id='denied']"))
         .getText();
   }
 
@@ -54,5 +73,11 @@ public class ErrorPage extends AbstractPage<ErrorPage> {
       context.getDriver().navigate().back();
     }
     return backTo.get();
+  }
+
+  private By getErrorBy(String xpath) {
+    By errorElement = By.xpath(xpath);
+    waiter.until(ExpectedConditions.visibilityOfElementLocated(errorElement));
+    return errorElement;
   }
 }

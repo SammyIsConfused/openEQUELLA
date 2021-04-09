@@ -21,6 +21,7 @@ package com.tle.web.viewitem.summary.content;
 import com.google.common.base.Function;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
+import com.rometools.utils.Strings;
 import com.tle.beans.item.Item;
 import com.tle.common.Format;
 import com.tle.common.usermanagement.user.valuebean.UserBean;
@@ -149,11 +150,14 @@ public class ChangeOwnershipContentSection
     ownerSelect.setPrompt(OWNER_DIALOG_PROMPT);
     ownerSelect.setOkCallback(events.getSubmitValuesFunction("changeOwner"));
     ownerSelect.setOkLabel(OWNER_DIALOG_OK);
+    ownerSelect.setCheckPermissionBeforeOpen(REQUIRED_PRIVILEGE, true);
 
     // Collaborators
     collabSelect.setTitle(COLLAB_DIALOG_TITLE);
     collabSelect.setPrompt(COLLAB_DIALOG_PROMPT);
     collabSelect.setMultipleUsers(true);
+    collabSelect.setCheckPermissionBeforeOpen(REQUIRED_PRIVILEGE, true);
+
     collabSelect.setOkCallback(
         ajax.getAjaxUpdateDomFunction(
             tree,
@@ -296,7 +300,11 @@ public class ChangeOwnershipContentSection
     protected List<String> getSourceList(SectionInfo info) {
       final ItemSectionInfo iinfo = ParentViewItemSectionUtils.getItemInfo(info);
       final Item item = iinfo.getItem();
-      return Collections.singletonList(item.getOwner());
+      String itemOwner = item.getOwner();
+      if (Strings.isEmpty(itemOwner)) {
+        itemOwner = item.getLastOwner();
+      }
+      return Collections.singletonList(itemOwner);
     }
 
     @Override
@@ -306,7 +314,8 @@ public class ChangeOwnershipContentSection
         String userId,
         List<SectionRenderable> actions,
         int index) {
-      selection.setViewAction(new LinkRenderer(userLinkSection.createLink(info, userId)));
+      selection.setViewAction(
+          new LinkRenderer(userLinkSection.createLink(info, userId, null, true)));
       actions.add(makeAction(OWNER_CHANGE, new OverrideHandler(ownerSelect.getOpenFunction())));
     }
   }

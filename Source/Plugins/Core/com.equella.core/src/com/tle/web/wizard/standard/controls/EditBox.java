@@ -19,42 +19,87 @@
 package com.tle.web.wizard.standard.controls;
 
 import com.tle.core.guice.Bind;
+import com.tle.core.i18n.CoreStrings;
 import com.tle.core.wizard.controls.HTMLControl;
 import com.tle.web.freemarker.FreemarkerFactory;
 import com.tle.web.freemarker.annotations.ViewFactory;
 import com.tle.web.sections.SectionInfo;
 import com.tle.web.sections.SectionResult;
 import com.tle.web.sections.SectionTree;
+import com.tle.web.sections.ajax.AjaxGenerator;
+import com.tle.web.sections.ajax.AjaxGenerator.EffectType;
+import com.tle.web.sections.ajax.handler.AjaxFactory;
+import com.tle.web.sections.annotations.EventFactory;
+import com.tle.web.sections.annotations.EventHandlerMethod;
+import com.tle.web.sections.equella.annotation.PlugKey;
 import com.tle.web.sections.events.RenderEventContext;
+import com.tle.web.sections.events.js.EventGenerator;
+import com.tle.web.sections.events.js.JSHandler;
 import com.tle.web.sections.js.ElementId;
 import com.tle.web.sections.js.JSAssignable;
 import com.tle.web.sections.js.generic.OverrideHandler;
+import com.tle.web.sections.js.generic.StatementHandler;
 import com.tle.web.sections.js.generic.function.AnonymousFunction;
 import com.tle.web.sections.js.generic.function.AssignableFunction;
 import com.tle.web.sections.js.generic.statement.ReturnStatement;
 import com.tle.web.sections.js.generic.statement.ScriptStatement;
+import com.tle.web.sections.render.TagRenderer;
+import com.tle.web.sections.standard.Link;
 import com.tle.web.sections.standard.TextField;
 import com.tle.web.sections.standard.annotations.Component;
-import com.tle.web.wizard.controls.AbstractSimpleWebControl;
+import com.tle.web.wizard.controls.AbstractWebControl;
 import com.tle.web.wizard.controls.CEditBox;
 import com.tle.web.wizard.controls.SimpleValueControl;
+import com.tle.web.wizard.controls.WebControlModel;
+import com.tle.web.wizard.section.WizardBodySection;
+import com.tle.web.wizard.standard.controls.EditBox.EditBoxModel;
 
 /** @author jmaginnis */
 @Bind
-public class EditBox extends AbstractSimpleWebControl implements SimpleValueControl {
+public class EditBox extends AbstractWebControl<EditBoxModel> implements SimpleValueControl {
   @ViewFactory(name = "wizardFreemarkerFactory")
   private FreemarkerFactory viewFactory;
 
   @Component(register = false, stateful = false)
   private TextField field;
 
+  @Component
+  @PlugKey("duplicatewarning.linktext")
+  private Link duplicateWarningLink;
+
   private CEditBox box;
+
+  @EventFactory private EventGenerator events;
+  @AjaxFactory private AjaxGenerator ajax;
 
   @Override
   public void registered(String id, SectionTree tree) {
     field.setParameterId(getFormName());
+    StatementHandler fieldValueChangedHandler =
+        new StatementHandler(
+            ajax.getAjaxUpdateDomFunction(
+                tree,
+                this,
+                events.getEventHandler("onFieldValueChanged"),
+                ajax.getEffectFunction(EffectType.REPLACE_IN_PLACE),
+                id + "_editbox_duplicate_warning"));
+    if (box.isCheckDuplication() || box.isForceUnique()) {
+      field.setEventHandler(JSHandler.EVENT_CHANGE, fieldValueChangedHandler);
+    }
     tree.registerInnerSection(field, id);
+    duplicateWarningLink.setClickHandler(events.getNamedHandler("openDuplicatePage"));
     super.registered(id, tree);
+  }
+
+  @EventHandlerMethod
+  public void onFieldValueChanged(SectionInfo info) {
+    box.checkDuplicate(field.getValue(info));
+  }
+
+  @EventHandlerMethod
+  public void openDuplicatePage(SectionInfo info) {
+    WizardBodySection bodySection = info.lookupSection(WizardBodySection.class);
+    bodySection.goToDuplicateDataTab(info);
   }
 
   @Override
@@ -64,6 +109,7 @@ public class EditBox extends AbstractSimpleWebControl implements SimpleValueCont
     if (control.getSize1() == 0) {
       control.setSize1(70);
     }
+    this.box.setEditBoxSection(this);
   }
 
   @Override
@@ -89,12 +135,26 @@ public class EditBox extends AbstractSimpleWebControl implements SimpleValueCont
               new ScriptStatement(
                   "if(this.value.length > 8192) this.value = this.value.slice(0, 8192);")));
     }
+    if (box.isMandatory()) {
+      field.getState(context).setAccessibilityAttr(TagRenderer.ARIA_REQUIRED, String.valueOf(true));
+    }
+    if (isInvalid() || getMessage() != null) {
+      field
+          .getState(context)
+          .setAccessibilityAttr(
+              TagRenderer.ARIA_LABELLEDBY,
+              field.getElementId(context) + "_label " + field.getElementId(context) + "_invalid ");
+    }
     addDisabler(context, field);
     return viewFactory.createResult("editbox.ftl", context);
   }
 
   public TextField getField() {
     return field;
+  }
+
+  public Link getDuplicateWarningLink() {
+    return duplicateWarningLink;
   }
 
   @Override
@@ -120,5 +180,26 @@ public class EditBox extends AbstractSimpleWebControl implements SimpleValueCont
   @Override
   protected ElementId getIdForLabel() {
     return field;
+  }
+
+  @Override
+  public EditBoxModel instantiateModel(SectionInfo info) {
+    return new EditBoxModel();
+  }
+
+  @Override
+  public Class<EditBoxModel> getModelClass() {
+    return EditBoxModel.class;
+  }
+
+  public class EditBoxModel extends WebControlModel {
+
+    public String getDuplicateWarningMessage() {
+      return CoreStrings.text("duplicatewarning.message");
+    }
+
+    public boolean isDisplayDuplicateWarning() {
+      return isDuplicateWarning();
+    }
   }
 }

@@ -253,7 +253,7 @@ public abstract class AbstractWizardControlPage<T extends AbstractWizardControlP
   public ExpectedCondition<WebElement> getNewAttachmentExpectation(String item) {
     return ExpectedConditions.visibilityOfElementLocated(
         By.xpath(
-            "//div[@class='universalresources']/table/tbody/tr/td[@class='name']/a[text()="
+            "//div[contains(@class, 'universalresources')]/div/ul/div/.//a[text()="
                 + quoteXPath(item)
                 + "]"));
   }
@@ -345,11 +345,13 @@ public abstract class AbstractWizardControlPage<T extends AbstractWizardControlP
   }
 
   public String getErrorMessage(int ctrlNum) {
-    return driver
-        .findElement(
+    WebElement errorMessage =
+        driver.findElement(
             By.xpath(
-                "id(" + quoteXPath(getControlId(ctrlNum)) + ")/div/p[@class='ctrlinvalidmessage']"))
-        .getText()
-        .trim();
+                "id("
+                    + quoteXPath(getControlId(ctrlNum))
+                    + ")/div/p[@class='ctrlinvalidmessage']"));
+    waiter.until(ExpectedConditions.visibilityOf(errorMessage));
+    return errorMessage.getText().trim();
   }
 }

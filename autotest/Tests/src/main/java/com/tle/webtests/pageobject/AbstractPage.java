@@ -414,6 +414,14 @@ public abstract class AbstractPage<T extends PageObject>
   @Override
   public T get() {
     refreshTime = System.currentTimeMillis();
+    // Due to some of the pages using various Sections AJAXy stuff, we need
+    // a bit more thorough wait checking then the plain old check by Selenium.
+    getWaiter()
+        .until(
+            driver ->
+                ((JavascriptExecutor) driver)
+                    .executeScript("return document.readyState")
+                    .equals("complete"));
     return getWaiter()
         .until(
             new ExpectedCondition<T>() {
@@ -505,7 +513,7 @@ public abstract class AbstractPage<T extends PageObject>
     }
   }
 
-  protected void scrollToElement(WebElement el) {
+  public void scrollToElement(WebElement el) {
     if (driver instanceof JavascriptExecutor) {
       ((JavascriptExecutor) driver)
           .executeScript("arguments[0].scrollIntoView({block:'center'});", el);

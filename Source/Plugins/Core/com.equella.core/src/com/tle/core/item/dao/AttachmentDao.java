@@ -27,10 +27,17 @@ import java.util.List;
 
 public interface AttachmentDao extends GenericDao<Attachment, Long> {
   List<Attachment> findByMd5Sum(
-      String md5Sum, ItemDefinition collection, boolean ignoreDeletedRejectedSuspenedItems);
+      String md5Sum,
+      ItemDefinition collection,
+      boolean ignoreDeletedRejectedSuspenedItems,
+      String excludedItemUuid);
 
   List<FileAttachment> findFilesWithNoMD5Sum();
 
   List<CustomAttachment> findResourceAttachmentsByQuery(
       String query, boolean liveOnly, String sortHql);
+
+  Attachment findByUuid(String uuid);
+
+  List<Attachment> findAllByUuid(String uuid);
 }

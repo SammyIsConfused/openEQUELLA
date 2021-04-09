@@ -21,7 +21,7 @@ package com.tle.core.auditlog;
 import com.tle.beans.Institution;
 import com.tle.beans.item.Item;
 import com.tle.beans.item.ItemKey;
-import com.tle.beans.item.attachments.Attachment;
+import com.tle.beans.item.attachments.IAttachment;
 import com.tle.common.usermanagement.user.UserState;
 import com.tle.common.usermanagement.user.WebAuthenticationDetails;
 import java.util.Collection;
@@ -74,16 +74,22 @@ public interface AuditLogService {
   void logContentViewed(
       String category, ItemKey itemId, String contentType, String path, HttpServletRequest request);
 
-  // void logItemContentViewed(ItemKey itemId, String contentType, String path);
-
   void logItemContentViewed(
       ItemKey itemId,
       String contentType,
       String path,
-      Attachment attachment,
+      IAttachment attachment,
       HttpServletRequest request);
 
   void logItemPurged(Item item);
+
+  // Note:  This is specific to the Blackboard REST connector,
+  // however, no other connector uses the audit log yet.  Maybe need to refactor in  the future
+  void logExternalConnectorUsed(
+      String externalConnectorUrl,
+      String requestLimit,
+      String requestRemaining,
+      String timeToReset);
 
   void logGeneric(
       String category, String type, String data1, String data2, String data3, String data4);

@@ -30,6 +30,8 @@ public abstract class AttachmentBean extends AbstractExtendableBean {
   private String description;
   private String viewer;
   private boolean preview;
+  private boolean erroredIndexing;
+  private boolean restricted;
 
   public String getUuid() {
     return uuid;
@@ -64,5 +66,29 @@ public abstract class AttachmentBean extends AbstractExtendableBean {
 
   public void setPreview(boolean preview) {
     this.preview = preview;
+  }
+
+  public void setRestricted(boolean restricted) {
+    this.restricted = restricted;
+  }
+
+  public boolean isRestricted() {
+    return restricted;
+  }
+
+  /**
+   * @see com.tle.beans.item.attachments.IAttachment#isErroredIndexing
+   * @return The value of erroredIndexing
+   */
+  public boolean isErroredIndexing() {
+    return erroredIndexing;
+  }
+
+  /**
+   * @see com.tle.beans.item.attachments.IAttachment#setErroredIndexing
+   * @param erroredIndexing The value to set erroredIndexing to
+   */
+  public void setErroredIndexing(boolean erroredIndexing) {
+    this.erroredIndexing = erroredIndexing;
   }
 }

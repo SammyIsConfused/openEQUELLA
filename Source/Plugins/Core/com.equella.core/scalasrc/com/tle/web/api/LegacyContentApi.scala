@@ -32,6 +32,7 @@ import com.tle.core.notification.standard.indexer.NotificationSearch
 import com.tle.core.plugins.{AbstractPluginService, PluginTracker}
 import com.tle.core.workflow.freetext.TaskListSearch
 import com.tle.legacy.LegacyGuice
+import com.tle.legacy.LegacyGuice.accessibilityModeService
 import com.tle.web.api.LegacyContentController.getBookmarkState
 import com.tle.web.sections._
 import com.tle.web.sections.ajax.{AjaxGenerator, AjaxRenderContext}
@@ -62,8 +63,9 @@ import io.lemonlabs.uri.{Path => _, _}
 import io.swagger.annotations.Api
 import javax.servlet.http.{HttpServletRequest, HttpServletResponse}
 import javax.ws.rs._
-import javax.ws.rs.core.Response.ResponseBuilder
+import javax.ws.rs.core.Response.{ResponseBuilder, Status}
 import javax.ws.rs.core.{CacheControl, Context, Response, UriInfo}
+import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -80,17 +82,19 @@ case class MenuItem(title: String,
                     newWindow: Boolean)
 
 case class LegacyContent(html: Map[String, String],
-                         css: Iterable[String],
+                         css: Option[Iterable[String]],
                          js: Iterable[String],
                          script: String,
                          state: Map[String, Array[String]],
                          title: String,
+                         metaTags: String,
                          menuMode: String,
                          fullscreenMode: String,
                          hideAppBar: Boolean,
                          userUpdated: Boolean,
                          preventUnload: Boolean,
-                         noForm: Boolean)
+                         noForm: Boolean,
+                         accessibilityMode: Boolean)
 
 case class ItemCounts(tasks: Int, notifications: Int)
 
@@ -99,6 +103,7 @@ case class CurrentUserDetails(id: String,
                               firstName: String,
                               lastName: String,
                               emailAddress: String,
+                              accessibilityMode: Boolean,
                               autoLoggedIn: Boolean,
                               guest: Boolean,
                               prefsEditable: Boolean,
@@ -108,6 +113,38 @@ case class CurrentUserDetails(id: String,
 object LegacyContentController extends AbstractSectionsController with SectionFilter {
 
   import LegacyGuice.urlService
+
+  def isClientPath(relUrl: RelativeUrl): Boolean = {
+    // This regex matches the relative url of Item Summary page
+    // For example 'items/95075bdd-4049-46ab-a1aa-043902e239a3/3/'
+    // The last forward slash does not exist in some cases
+
+    // This regex also works for those that have query params.
+    // For example, in Selection Session, the URL would be
+    // 'items/95075bdd-4049-46ab-a1aa-043902e239a3/3/?_sl.stateId=1&_int.id=2'.
+
+    val itemSummaryUrlPattern =
+      "items\\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\\/\\d+\\/?\\??.+".r
+
+    // This regex explicitly matches the relative Url of logon
+    // For example, 'logon.do' or 'logon.do?.page=home.do'
+    val logonUrlPattern = "logon\\.do\\??.*".r
+
+    // This regex matches the relative Urls of other pages
+    // For example, 'home.do' or 'access/runwizard.do?.wizid...'
+    val otherUrlPattern = ".+\\.do\\??.*".r
+
+    relUrl.toString() match {
+      case logonUrlPattern()       => false
+      case itemSummaryUrlPattern() => true
+      case otherUrlPattern()       => true
+      case _                       => false
+    }
+  }
+
+  def internalRoute(uri: String): Option[String] = {
+    relativeURI(uri).filter(isClientPath).map(r => "/" + r.toString())
+  }
 
   override lazy val getExceptionHandlers: util.Collection[ExceptionHandlerMatch] = {
     val disableHandlers = Set("ajaxExceptionHandler", "defaultEquellaErrorHandler")
@@ -178,7 +215,7 @@ object LegacyContentController extends AbstractSectionsController with SectionFi
       formTag.setId(StandardExpressions.FORM_NAME)
       helper.setFormExpression(StandardExpressions.FORM_EXPRESSION)
     }
-
+    RenderTemplate.addFormSubmitBinding(formTag)
     if (!helper.isSubmitFunctionsSet) {
       helper.setSubmitFunctions(
         new ExternallyDefinedFunction("EQ.event"),
@@ -216,6 +253,7 @@ object LegacyContentController extends AbstractSectionsController with SectionFi
 @Api("Legacy content")
 @Path("content")
 class LegacyContentApi {
+  val LOGGER = LoggerFactory.getLogger(classOf[LegacyContentApi])
 
   def parsePath(path: String): (String, MutableSectionInfo => MutableSectionInfo) = {
 
@@ -228,6 +266,7 @@ class LegacyContentApi {
         info
       })
     }
+
     path match {
       case ""                          => ("/home.do", identity)
       case p if p.startsWith("items/") => itemViewer(p.substring("items/".length), (_, vi) => vi)
@@ -303,6 +342,8 @@ class LegacyContentApi {
 
     val cu = CurrentUser.getUserState
 
+    val accessibilityMode = LegacyGuice.accessibilityModeService.isAccessibilityMode
+
     val prefsEditable = !(cu.isSystem || cu.isGuest) && !(cu.wasAutoLoggedIn &&
       LegacyGuice.configService.getProperties(new AutoLogin).isEditDetailsDisallowed)
     val menuGroups = {
@@ -324,15 +365,13 @@ class LegacyContentApi {
                   new BookmarkAndModify(context,
                                         menuLink.getHandlerMap.getHandler("click").getModifier))
                 .getHref
-              val relativized =
-                LegacyContentController.relativeURI(href).filter(_.path.parts.last.endsWith(".do"))
-              val route   = Option(mc.getRoute)
+              val route   = Option(mc.getRoute).orElse(LegacyContentController.internalRoute(href))
               val iconUrl = if (mc.isCustomImage) Some(mc.getBackgroundImagePath) else None
               MenuItem(
                 menuLink.getLabelText,
-                if (relativized.isEmpty && route.isEmpty) Some(href) else None,
+                if (route.isEmpty) Some(href) else None,
                 Option(mc.getSystemIcon),
-                route.orElse(relativized.map(r => "/" + r.toString)),
+                route,
                 iconUrl,
                 "_blank" == menuLink.getTarget
               )
@@ -363,7 +402,8 @@ class LegacyContentApi {
           guest = cu.isGuest,
           prefsEditable = prefsEditable,
           menuGroups = menuGroups,
-          counts = counts
+          counts = counts,
+          accessibilityMode = accessibilityMode
         )
       )
       .cacheControl(cacheControl)
@@ -436,24 +476,31 @@ class LegacyContentApi {
     Option(req.getAttribute(LegacyContentController.RedirectedAttr).asInstanceOf[String]).map {
       url =>
         Response.ok {
-          LegacyContentController.relativeURI(url) match {
-            case None           => ExternalRedirect(url)
-            case Some(relative) => InternalRedirect(relative.toString, userChanged(req))
+          LegacyContentController.internalRoute(url) match {
+            case Some(relative) => InternalRedirect(relative.substring(1), userChanged(req))
+            case _              => ExternalRedirect(url)
           }
         }
     }
   }
 
   class LegacyResponseListener(info: MutableSectionInfo) extends RenderResultListener {
+    import LegacyGuice.accessibilityModeService
 
     override def returnResult(result: SectionResult, fromId: String): Unit = {
-      val context = info.getRootRenderContext.asInstanceOf[StandardRenderContext]
-      val decs    = Decorations.getDecorations(info)
+      val context           = info.getRootRenderContext.asInstanceOf[StandardRenderContext]
+      val decs              = Decorations.getDecorations(info)
+      val accessibilityMode = accessibilityModeService.isAccessibilityMode
       val html = result match {
         case tr: TemplateResult =>
           val body = SectionUtils.renderToString(
             context,
             wrapBody(context, tr.getNamedResult(context, "body")))
+          val form = context.getForm
+          val formString: Option[String] = Option(form.getAction) match {
+            case Some(action) => Some(SectionUtils.renderToString(context, form))
+            case None         => None
+          }
           val upperbody =
             SectionUtils.renderToString(context, tr.getNamedResult(context, "upperbody"))
           val scrops = renderScreenOptions(context)
@@ -461,6 +508,7 @@ class LegacyContentApi {
           Iterable(
             Some("body"                                          -> body),
             Option(upperbody).filter(_.nonEmpty).map("upperbody" -> _),
+            formString.map("form"                                -> _),
             scrops.map("so"                                      -> _),
             crumbs.map("crumbs"                                  -> _)
           ).flatten.toMap
@@ -478,11 +526,10 @@ class LegacyContentApi {
             JQueryCore.JQUERY,
             new AnonymousFunction(new StatementBlock(ready).setSeperate(true))))
 
-      val scripts = preRenderPageScripts(context, context).map(_.getStatements(context))
-      val jsFiles = context.getJsFiles.asScala
-      val cssFiles = context.getCssFiles.asScala.collect {
-        case css: CssInclude => css.getHref(context)
-      }
+      val scripts  = preRenderPageScripts(context, context).map(_.getStatements(context))
+      val jsFiles  = context.getJsFiles.asScala
+      val cssFiles = loadCss(context)
+      val metaTags = context.getHeaderMarkup
       val title =
         Option(decs.getBannerTitle).orElse(Option(decs.getTitle)).map(_.getText).getOrElse("")
       val menuMode       = decs.getMenuMode.toString
@@ -498,14 +545,31 @@ class LegacyContentApi {
           scripts.mkString("\n"),
           getBookmarkState(info, new BookmarkEvent(null, true, info)),
           title,
+          metaTags,
           menuMode,
           fullscreenMode,
           hideAppBar,
           userChanged(info.getRequest),
           preventUnload,
-          decs.isExcludeForm
+          decs.isExcludeForm,
+          accessibilityMode
         )
       )
+    }
+  }
+
+  def loadCss(context: StandardRenderContext): Option[Iterable[String]] = {
+    val uri = context.getRequest.getRequestURI
+    // Below three pages don't need 'legacy.css' so load CSS from server side
+    val pagePattern = ".+/(apidocs|editoradmin|reports)\\.do".r
+
+    uri match {
+      case pagePattern(_) =>
+        val cssIncludes = context.getCssFiles.asScala.collect {
+          case css: CssInclude => css.getHref(context)
+        }
+        Option(cssIncludes)
+      case _ => None
     }
   }
 
@@ -530,11 +594,12 @@ class LegacyContentApi {
   }
 
   def wrapBody(context: RenderContext, body: SectionRenderable): SectionRenderable = {
-    val decs = Decorations.getDecorations(context)
-
+    val decs              = Decorations.getDecorations(context)
+    val accessibilityMode = accessibilityModeService.isAccessibilityMode
     if (decs.isBanner || !decs.isMenuHidden || decs.isContent) {
       val cbTag = context.getBody
       cbTag.setId("content-body")
+      cbTag.addClass(if (accessibilityMode) "accessibility" else "")
       val citag = new TagState("content-inner").addClass[TagState](decs.getPageLayoutDisplayClass)
       val cbtag = cbTag.addClasses[TagState](decs.getContentBodyClasses)
 
@@ -571,7 +636,7 @@ class LegacyContentApi {
       .map(bbr => SectionUtils.renderToString(context, bbr.getRenderable))
   }
 
-  def ajaxResponse(info: MutableSectionInfo, arc: AjaxRenderContext) = {
+  def ajaxResponse(info: MutableSectionInfo, arc: AjaxRenderContext): Response.ResponseBuilder = {
     var resp: ResponseBuilder = null
     val context               = LegacyContentController.prepareJSContext(info)
 
@@ -604,10 +669,16 @@ class LegacyContentApi {
       case tr: TemplateResult    => tr.getNamedResult(context, "body")
       case sr: SectionRenderable => sr
       case pr: PreRenderable     => new PreRenderOnly(pr)
+      //Due to many unknowns of what could cause renderedBody being null, return a 500 error at the moment.
+      case _ =>
+        LOGGER.debug("Unknown error at renderedBody - ajaxResponse");
+        return Response.status(Status.NOT_IMPLEMENTED);
     }
     renderAjaxBody(renderedBody)
     val responseCallback = arc.getJSONResponseCallback
     info.setRendered()
+    //removes old ui css that gets included when a sections ajax request is made
+    arc.clearCss()
     Response.ok(responseCallback.getResponseObject(arc))
   }
 }
