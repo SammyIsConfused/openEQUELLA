@@ -11,7 +11,7 @@ val CirceVersion  = "0.12.1"
 val Http4sVersion = "0.21.8"
 val jsoupVersion  = "1.13.1"
 
-scalaVersion := "2.12.12"
+scalaVersion := "2.12.13"
 scalacOptions += "-Ypartial-unification"
 
 excludeDependencies ++= Seq("org.typelevel" % "scala-library")
@@ -33,12 +33,12 @@ libraryDependencies ++= Seq(
   "com.nulab-inc" %% "scala-oauth2-core"   % "1.5.0"
 )
 
-resourceGenerators in Compile += Def.task {
+(Compile / resourceGenerators) += Def.task {
   val baseJs = baseDirectory.value / "ps"
   val cached = FileFunction.cached(target.value / "pscache") { files =>
     Common.nodeInstall(baseJs)
     Common.nodeScript("build", baseJs)
-    val outDir       = (resourceManaged in Compile).value / "www"
+    val outDir       = (Compile / resourceManaged).value / "www"
     val baseJsTarget = baseJs / "target/www"
     IO.copy((baseJsTarget ** "*").pair(rebase(baseJsTarget, outDir)))
   }

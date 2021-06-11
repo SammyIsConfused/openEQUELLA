@@ -50,6 +50,7 @@ import com.tle.core.oauth.service.OAuthService;
 import com.tle.core.plugins.PluginTracker;
 import com.tle.core.powersearch.PowerSearchService;
 import com.tle.core.replicatedcache.ReplicatedCacheService;
+import com.tle.core.replicatedcache.dao.ReplicatedCacheDao;
 import com.tle.core.search.service.impl.SearchPrivilegeTreeProvider;
 import com.tle.core.security.TLEAclManager;
 import com.tle.core.services.FileSystemService;
@@ -60,6 +61,7 @@ import com.tle.core.services.user.UserSessionService;
 import com.tle.core.settings.service.ConfigurationService;
 import com.tle.core.usermanagement.standard.dao.TLEUserDao;
 import com.tle.web.api.item.ItemLinkService;
+import com.tle.web.api.search.service.ExportService;
 import com.tle.web.contentrestrictions.ContentRestrictionsPrivilegeTreeProvider;
 import com.tle.web.coursedefaults.CourseDefaultsSettingsPrivilegeTreeProvider;
 import com.tle.web.customdateformat.DateFormatSettingsPrivilegeTreeProvider;
@@ -135,6 +137,8 @@ public class LegacyGuice extends AbstractModule {
   @Inject public static EncryptionService encryptionService;
 
   @Inject public static EventService eventService;
+
+  @Inject public static ExportService exportService;
 
   @Inject public static FacetedSearchClassificationService facetedSearchClassificationService;
 
@@ -215,6 +219,8 @@ public class LegacyGuice extends AbstractModule {
   public static QuickContributeAndVersionSettingsPrivilegeTreeProvider quickContribPrivProvider;
 
   @Inject public static RemoteCachingPrivilegeTreeProvider remoteCachePrivProvider;
+
+  @Inject public static ReplicatedCacheDao replicatedCacheDao;
 
   @Inject public static ReplicatedCacheService replicatedCacheService;
 

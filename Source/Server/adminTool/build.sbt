@@ -1,4 +1,4 @@
-val springVersion = "5.3.5"
+val springVersion = "5.3.7"
 
 libraryDependencies ++= Seq(
   "org.slf4j"              % "jcl-over-slf4j"  % "1.7.30",
@@ -14,8 +14,8 @@ libraryDependencies ++= Seq(
   "org.springframework"    % "spring-context"  % springVersion
 )
 
-unmanagedJars in Compile += file(sys.props("java.home")) / "lib/javaws.jar"
+(Compile / unmanagedJars) += file(sys.props("java.home")) / "lib/javaws.jar"
 
-fork in run := true
+(run / fork) := true
 
-mainClass in (Compile, run) := Some("com.tle.client.harness.ClientLauncher")
+(Compile / run / mainClass) := Some("com.tle.client.harness.ClientLauncher")
